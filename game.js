@@ -13,7 +13,7 @@ const HUD_Y = 240;            // HUD occupies y = 240..320
 const PLAY_H = HUD_Y;         // playable height
 const FLOOR_TOP = 162;        // nearest the back wall (feet y, small = far)
 const FLOOR_BOTTOM = 232;     // nearest the camera (feet y, large = near)
-const LEVEL_LENGTH = 3600;    // world width in px
+const LEVEL_LENGTH = 5400;    // world width in px
 const CAM_MAX = LEVEL_LENGTH - CANVAS_W;
 const WALL_PAD = 26;          // how close to screen edge actors may stand
 const WALK_X = 150;           // player horizontal speed (px/s)
@@ -187,6 +187,7 @@ const Sound = {
   roll()    { this.tone(420, 0.10, "triangle", 0.25, 220); },
   jump()    { this.tone(300, 0.16, "square", 0.3, 620); },
   land()    { this.noise(0.05, 0.2, 500); this.tone(160, 0.05, "square", 0.2, 90); },
+  pizza()   { [523, 659, 880].forEach((f, i) => setTimeout(() => this.tone(f, 0.12, "square", 0.4), i * 70)); },
   laser()   { this.tone(900, 0.18, "sawtooth", 0.35, 180); this.noise(0.06, 0.2, 1200); },
   stomp()   { this.tone(90, 0.16, "square", 0.5, 50); this.noise(0.12, 0.4, 200); },
   hurt()    { this.tone(300, 0.12, "sawtooth", 0.4, 90); },
@@ -250,10 +251,14 @@ const KINDS = {
 /* Each room locks the camera at lockCam; enemies must be cleared to advance. */
 const ROOMS = [
   { lockCam: 300,  spawns: ["drone", "drone", "drone"] },
-  { lockCam: 760,  spawns: ["drone", "drone", "brute", "drone"] },         // meet the BRUTE
-  { lockCam: 1240, spawns: ["drone", "laser", "drone", "laser", "red"] },  // meet the GUNNER
-  { lockCam: 1740, spawns: ["flyer", "drone", "flyer", "drone", "red"] },  // meet the FLYER
-  { lockCam: 2260, spawns: ["brute", "laser", "flyer", "red", "red", "drone"] }, // gauntlet
+  { lockCam: 760,  spawns: ["drone", "drone", "red", "drone"] },
+  { lockCam: 1220, spawns: ["drone", "drone", "brute", "drone"] },          // meet the BRUTE
+  { lockCam: 1680, spawns: ["drone", "laser", "drone", "laser", "red"] },   // meet the GUNNER
+  { lockCam: 2160, spawns: ["flyer", "drone", "flyer", "drone", "red"], pizza: true }, // meet the FLYER + PIZZA
+  { lockCam: 2640, spawns: ["brute", "red", "brute", "drone", "red"] },     // double brute
+  { lockCam: 3120, spawns: ["laser", "flyer", "drone", "laser", "red", "red"] },
+  { lockCam: 3600, spawns: ["flyer", "brute", "laser", "red", "drone", "flyer"], pizza: true }, // gauntlet + PIZZA
+  { lockCam: 4140, spawns: ["red", "red", "drone", "brute", "red", "flyer", "drone"] }, // swarm
   { lockCam: CAM_MAX, spawns: ["boss"], boss: true },
 ];
 const MAX_CONCURRENT = 4;
@@ -269,6 +274,58 @@ const CHARACTERS = [
   { name: "ONYX",  pal: { sk: "#8a8f9c", skH: "#aab0bd", skS: "#5b6070", bd: "#9b59d0", bdH: "#c089ee", bdS: "#6a37a0", bl: "#c0c4cf", blH: "#e0e3ea", blS: "#878c98", pd: "#7a7f8c", pdS: "#52555f", bt: "#3a2f55", btH: "#574a7a", btS: "#221b36", o: "#15131c", eye: "#fff", pp: "#15131c" } },
 ];
 const P_TAGCOLOR = ["#ffffff", "#ffe23a"];   // P1 / P2 number tag colours
+
+/* --------------------------- Road obstacles -------------------------- */
+/* Solid props on the road. halfW/halfD = ground footprint; h = how high you
+   must jump to clear them. Actors push out of them and can walk around. */
+const OBSTACLE_TYPES = {
+  cone:    { halfW: 6,  halfD: 6,  h: 18 },
+  drum:    { halfW: 9,  halfD: 8,  h: 34 },
+  crate:   { halfW: 12, halfD: 10, h: 30 },
+  barrier: { halfW: 19, halfD: 7,  h: 26 },
+};
+// z kept in a middle band so there's always a walkable lane on each side
+const OBSTACLES = [
+  { x: 500,  z: 190, type: "cone" },
+  { x: 545,  z: 204, type: "cone" },
+  { x: 970,  z: 198, type: "drum" },
+  { x: 1450, z: 192, type: "barrier" },
+  { x: 1620, z: 202, type: "crate" },
+  { x: 1980, z: 196, type: "drum" },
+  { x: 2450, z: 194, type: "barrier" },
+  { x: 2560, z: 200, type: "drum" },
+  { x: 2980, z: 202, type: "crate" },
+  { x: 3060, z: 190, type: "cone" },
+  { x: 3450, z: 196, type: "drum" },
+  { x: 3560, z: 198, type: "barrier" },
+  { x: 3980, z: 200, type: "crate" },
+  { x: 4420, z: 192, type: "drum" },
+  { x: 4470, z: 204, type: "cone" },
+  { x: 4720, z: 196, type: "barrier" },
+];
+
+// push an actor out of any solid obstacle (skipped while jumping above its height)
+function collideObstacles(actor, rx, rz) {
+  for (const o of game.obstacles) {
+    if (actor.alt >= o.h) continue;                 // cleared by a jump
+    const dx = actor.worldX - o.x, dz = actor.z - o.z;
+    const ox = o.halfW + rx, oz = o.halfD + rz;
+    if (Math.abs(dx) < ox && Math.abs(dz) < oz) {
+      const penX = ox - Math.abs(dx), penZ = oz - Math.abs(dz);
+      if (penX <= penZ) {
+        actor.worldX += dx < 0 ? -penX : penX;
+      } else {
+        // pop around toward the lane with room (don't shove into the road edge)
+        const roomUp = (o.z - oz) - FLOOR_TOP;
+        const roomDown = FLOOR_BOTTOM - (o.z + oz);
+        let dir = dz < 0 ? -1 : 1;
+        if (dir > 0 && roomDown < penZ) dir = -1;
+        else if (dir < 0 && roomUp < penZ) dir = 1;
+        actor.z += dir * penZ;
+      }
+    }
+  }
+}
 
 /* ============================== Actor =============================== */
 class Actor {
@@ -568,6 +625,8 @@ class Player extends Actor {
     this.z = clamp(this.z, FLOOR_TOP, FLOOR_BOTTOM);
     const [l, r] = this.arenaBounds();
     this.worldX = clamp(this.worldX, l, r);
+    collideObstacles(this, 9, 6);
+    this.z = clamp(this.z, FLOOR_TOP, FLOOR_BOTTOM);
   }
 }
 
@@ -647,6 +706,11 @@ class Enemy extends Actor {
 
     this.separate();
     this.z = clamp(this.z, FLOOR_TOP, FLOOR_BOTTOM);
+    // grounded grunts/gunners go around obstacles; flyers fly over, boss bulldozes through
+    if (!this.isBoss && this.behavior !== "flyer") {
+      collideObstacles(this, 9 * this.cfg.scale, 6);
+      this.z = clamp(this.z, FLOOR_TOP, FLOOR_BOTTOM);
+    }
   }
 
   /* ---- grunt AI ---- */
@@ -956,6 +1020,9 @@ const game = {
   spawnSide: 1,
   enemies: [],
   projectiles: [],
+  obstacles: [],
+  pickups: [],
+  pizzasSpawned: 0,
   players: [],
   roster: [{ charIndex: 0, input: inputs[0] }],   // last-used selection (for retry)
   sel: null,                 // character-select screen state
@@ -979,6 +1046,9 @@ const game = {
     this.spawnTimer = 0;
     this.enemies = [];
     this.projectiles = [];
+    this.obstacles = OBSTACLES.map((o) => ({ ...o, ...OBSTACLE_TYPES[o.type], obstacle: true }));
+    this.pickups = [];
+    this.pizzasSpawned = 0;
     this.boss = null;
     this.particles = [];
     this.texts = [];
@@ -1064,6 +1134,11 @@ const game = {
     }
     return best || this.players.find((pl) => !pl.out) || this.players[0];
   },
+  spawnPizza() {
+    this.pizzasSpawned++;
+    this.pickups.push({ worldX: this.cameraX + CANVAS_W * 0.5, z: FLOOR_BOTTOM - 26, bobT: 0, taken: false, pickup: true });
+    spawnText(this.cameraX + CANVAS_W * 0.5, FLOOR_BOTTOM - 60, "PIZZA!", "#ffd24a");
+  },
 
   beginRoom() {
     const room = ROOMS[this.roomIndex];
@@ -1120,6 +1195,7 @@ const game = {
         if (this.endTimerStart === undefined) this.endTimerStart = this.time;
         if (this.time - this.endTimerStart > 1.4) this.toWin();
       } else {
+        if (room.pizza && this.pizzasSpawned < 2) this.spawnPizza();
         this.roomState = "cleared";
         this.roomIndex++;
         this.cameraScrollMax = ROOMS[this.roomIndex].lockCam;
@@ -1155,6 +1231,23 @@ const game = {
     this.projectiles = this.projectiles.filter((pr) =>
       !pr.dead && pr.life > 0 &&
       pr.worldX - this.cameraX > -50 && pr.worldX - this.cameraX < CANVAS_W + 50);
+
+    // healing pizzas — walk over one to eat it
+    for (const pk of this.pickups) {
+      pk.bobT += dt;
+      for (const pl of this.players) {
+        if (pl.out || pl.dead || pl.alt > 26) continue;
+        if (Math.abs(pl.worldX - pk.worldX) < 16 && Math.abs(pl.z - pk.z) < 16) {
+          pk.taken = true;
+          pl.hp = Math.min(pl.maxHp, pl.hp + 50);
+          Sound.pizza();
+          spawnText(pk.worldX, pk.z - 44, "+50 HP", "#36d35a");
+          sparks(pk.worldX, pk.z - 16, "#ffd24a", 10);
+          break;
+        }
+      }
+    }
+    this.pickups = this.pickups.filter((pk) => !pk.taken);
 
     // camera follows the average of living players, clamped to current scroll max
     const alive = this.alivePlayers();
@@ -1267,7 +1360,7 @@ function drawBackground() {
 
   // a few cracks for texture
   ctx.strokeStyle = "rgba(60,66,74,0.6)"; ctx.lineWidth = 1;
-  const seeds = [200, 540, 980, 1320, 1700, 2100, 2480, 2900, 3200];
+  const seeds = [200, 540, 980, 1320, 1700, 2100, 2480, 2900, 3200, 3600, 3980, 4350, 4720, 5050, 5300];
   for (const s of seeds) {
     const sx = px(s - cam);
     if (sx < -20 || sx > CANVAS_W + 20) continue;
@@ -1746,12 +1839,70 @@ function drawProjectiles() {
   ctx.globalAlpha = 1;
 }
 
+/* ----------------------------- Obstacles ---------------------------- */
+function drawObstacle(o) {
+  const sx = o.x - game.cameraX;
+  if (sx < -40 || sx > CANVAS_W + 40) return;
+  drawShadow(sx, o.z, o.halfW);
+  ctx.save();
+  ctx.translate(px(sx), px(o.z));
+  if (o.type === "cone") {
+    pr(-7, -3, 14, 3, "#2a1d0c");
+    bev(-6, -4, 12, 2, "#e0722a", "#ff9a4a", "#a8511c");
+    bev(-5, -9, 10, 5, "#ef7e2e", "#ff9a4a", "#b85b1c");
+    pr(-5, -8, 10, 2, "#f7f2e6");
+    bev(-3, -16, 6, 7, "#ef7e2e", "#ff9a4a", "#b85b1c");
+    pr(-2, -17, 4, 2, "#c75f1f");
+  } else if (o.type === "drum") {
+    out(-9, -24, 18, 24, "#15100c");
+    bev(-9, -24, 18, 24, "#b5402e", "#d96a55", "#7a261a");
+    pr(-7, -25, 14, 2, "#caa24a");          // lid
+    pr(-9, -18, 18, 2, "#7a261a"); pr(-9, -9, 18, 2, "#7a261a");   // bands
+    pr(-2, -22, 2, 18, "#d9806e");           // highlight
+  } else if (o.type === "crate") {
+    out(-12, -22, 24, 22, "#241708");
+    bev(-12, -22, 24, 22, "#a9742f", "#c79551", "#7a521f");
+    pr(-12, -15, 24, 1, "#6f4a1c"); pr(-12, -8, 24, 1, "#6f4a1c");
+    pr(-12, -22, 3, 3, "#5b4424"); pr(9, -22, 3, 3, "#5b4424");
+    pr(-12, -3, 3, 3, "#5b4424"); pr(9, -3, 3, 3, "#5b4424");
+  } else { // barrier (concrete jersey barrier)
+    out(-19, -8, 38, 8, "#101216");
+    bev(-19, -8, 38, 8, "#9aa0aa", "#bcc1c9", "#6f757f");
+    out(-13, -18, 26, 11, "#101216");
+    bev(-13, -18, 26, 11, "#a7adb6", "#c7ccd3", "#787e88");
+    pr(-13, -14, 26, 2, "#e0a23a"); pr(-13, -11, 26, 1, "#6f757f");  // hazard stripe
+  }
+  ctx.restore();
+}
+
+/* ----------------------------- Pizza pickup ------------------------- */
+function drawPickup(pk) {
+  const sx = pk.worldX - game.cameraX;
+  drawShadow(sx, pk.z, 9);
+  const bob = Math.sin(pk.bobT * 5) * 2.5;
+  ctx.save();
+  ctx.translate(px(sx), px(pk.z - 12 - bob));
+  // glow
+  ctx.globalAlpha = 0.22 + Math.sin(pk.bobT * 6) * 0.1; ctx.fillStyle = "#ffe27b";
+  ctx.beginPath(); ctx.arc(0, 0, 12, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+  // pie
+  ctx.fillStyle = "#caa24a"; ctx.beginPath(); ctx.arc(0, 0, 9, 0, Math.PI * 2); ctx.fill();   // crust
+  ctx.fillStyle = "#f2cf63"; ctx.beginPath(); ctx.arc(0, 0, 7, 0, Math.PI * 2); ctx.fill();   // cheese
+  ctx.fillStyle = "#c4351f";
+  [[-3, -2], [3, -1], [-1, 3], [4, 3]].forEach(([dx, dy]) => { ctx.beginPath(); ctx.arc(dx, dy, 1.6, 0, Math.PI * 2); ctx.fill(); });
+  ctx.fillStyle = "#fff7e0"; ctx.fillRect(-4, -5, 2, 2);   // shine
+  ctx.restore();
+}
+
 function drawActors() {
   const heroes = game.players.filter((pl) => !pl.out);
-  const list = [...heroes, ...game.enemies];
+  const list = [...heroes, ...game.enemies, ...game.obstacles, ...game.pickups];
   list.sort((a, b) => a.z - b.z);
   for (const a of list) {
     if (a instanceof Player) drawHero(a);
+    else if (a.obstacle) drawObstacle(a);
+    else if (a.pickup) drawPickup(a);
     else if (a.isBoss) drawBoss(a);
     else if (a.kind === "brute") drawBrute(a);
     else if (a.kind === "laser") drawLaser(a);
