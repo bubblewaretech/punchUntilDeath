@@ -13,8 +13,6 @@ const HUD_Y = 240;            // HUD occupies y = 240..320
 const PLAY_H = HUD_Y;         // playable height
 const FLOOR_TOP = 162;        // nearest the back wall (feet y, small = far)
 const FLOOR_BOTTOM = 232;     // nearest the camera (feet y, large = near)
-const LEVEL_LENGTH = 5400;    // world width in px
-const CAM_MAX = LEVEL_LENGTH - CANVAS_W;
 const WALL_PAD = 26;          // how close to screen edge actors may stand
 const WALK_X = 150;           // player horizontal speed (px/s)
 const WALK_Z = 102;           // player depth speed (px/s)
@@ -202,18 +200,23 @@ const Sound = {
 };
 
 /* --------------------------- Enemy kinds ----------------------------- */
+/* Each grunt has a `pal` (Stage 1 look) and `sewerPal` (Stage 2 recolor). */
 const KINDS = {
   drone: {
     hp: 30, speed: 70, dmg: 8, scale: 1, score: 200, knockTaken: 1, behavior: "melee", vReach: 30,
     windup: 0.42, active: 0.12, recover: 0.42, range: 34, depth: 28, atkKnock: 150,
     pal: { metal: "#b9c2cf", mHi: "#d8dee8", mSh: "#7c8698", dark: "#4b5363",
            eye: "#ff4533", trim: "#8a93a4", trimHi: "#aab2bf", trimSh: "#5c6573" },
+    sewerPal: { metal: "#7e8a6c", mHi: "#9fae88", mSh: "#515c42", dark: "#2c3324",
+           eye: "#9bff4d", trim: "#6f7d58", trimHi: "#8b9a6e", trimSh: "#454f34" },
   },
   red: {
     hp: 24, speed: 116, dmg: 11, scale: 1, score: 320, knockTaken: 1.1, behavior: "melee", vReach: 30,
     windup: 0.30, active: 0.10, recover: 0.34, range: 38, depth: 30, atkKnock: 190,
     pal: { metal: "#d6493a", mHi: "#f1745f", mSh: "#9a3024", dark: "#4f1a15",
            eye: "#ffe23a", trim: "#ff8a3a", trimHi: "#ffb06a", trimSh: "#c25f1f" },
+    sewerPal: { metal: "#9a6b3a", mHi: "#c08d55", mSh: "#5f3f1f", dark: "#33220f",
+           eye: "#caff3a", trim: "#c0792e", trimHi: "#e0a05a", trimSh: "#7a4a1c" },
   },
   // Ranged gunner — keeps its distance and fires laser bolts
   laser: {
@@ -222,6 +225,8 @@ const KINDS = {
     fireMin: 1.3, fireMax: 2.4,
     pal: { metal: "#46a886", mHi: "#69d2ad", mSh: "#2c6f59", dark: "#1d3d33",
            eye: "#ff4d4d", trim: "#ffd23a", trimHi: "#ffe884", trimSh: "#c79a1f" },
+    sewerPal: { metal: "#4a7a52", mHi: "#6fa873", mSh: "#2c4f33", dark: "#16291b",
+           eye: "#caff3a", trim: "#9bff5a", trimHi: "#c3ff9a", trimSh: "#5f9a2f" },
   },
   // Brute — big, slow, hits hard and is tough to stagger
   brute: {
@@ -229,6 +234,8 @@ const KINDS = {
     windup: 0.74, active: 0.16, recover: 0.72, range: 44, depth: 32, atkKnock: 300,
     pal: { metal: "#8b8f99", mHi: "#aeb3bd", mSh: "#5b5f69", dark: "#33363d",
            eye: "#ff8a1e", trim: "#e07b2e", trimHi: "#ffa451", trimSh: "#a3531b" },
+    sewerPal: { metal: "#6f6f56", mHi: "#909073", mSh: "#454538", dark: "#26261a",
+           eye: "#9bff4d", trim: "#7a6b3a", trimHi: "#a3905a", trimSh: "#4f441f" },
   },
   // Flyer — hovers above the ground and swoops down to attack
   flyer: {
@@ -237,30 +244,29 @@ const KINDS = {
     hoverMin: 30, hoverMax: 46,
     pal: { metal: "#8a6fc0", mHi: "#ad93dd", mSh: "#5b478a", dark: "#2e2447",
            eye: "#7cffea", trim: "#ff5ad6", trimHi: "#ff9ce6", trimSh: "#b53a96" },
+    sewerPal: { metal: "#5a7a6a", mHi: "#7fa890", mSh: "#384f44", dark: "#1f2e28",
+           eye: "#caff3a", trim: "#7bdf8a", trimHi: "#a8f0b2", trimSh: "#3f8a4f" },
   },
+  // Stage 1 boss
   boss: {
+    name: "TITAN-X",
     hp: 360, speed: 46, dmg: 16, scale: 1.6, score: 6000, knockTaken: 0.18, behavior: "boss", vReach: 70,
     windup: 0.5, active: 0.14, recover: 0.6, range: 58, depth: 40, atkKnock: 300,
     isBoss: true,
     pal: { metal: "#6c7686", mHi: "#8d96a6", mSh: "#474f5b", dark: "#2c333f",
            eye: "#ffd000", trim: "#c0392b", trimHi: "#e0584a", trimSh: "#7e251b" },
   },
+  // Stage 2 boss — toxic sewer hulk
+  ooze: {
+    name: "SLUDGE-9",
+    hp: 440, speed: 44, dmg: 18, scale: 1.7, score: 8000, knockTaken: 0.16, behavior: "boss", vReach: 72,
+    windup: 0.5, active: 0.15, recover: 0.58, range: 60, depth: 42, atkKnock: 320,
+    isBoss: true,
+    pal: { metal: "#5a6a4a", mHi: "#7d8e64", mSh: "#374227", dark: "#1d2416",
+           eye: "#9bff3a", trim: "#3a7a2a", trimHi: "#62b83a", trimSh: "#235018" },
+  },
 };
 
-/* --------------------------- Level layout ---------------------------- */
-/* Each room locks the camera at lockCam; enemies must be cleared to advance. */
-const ROOMS = [
-  { lockCam: 300,  spawns: ["drone", "drone", "drone"] },
-  { lockCam: 760,  spawns: ["drone", "drone", "red", "drone"] },
-  { lockCam: 1220, spawns: ["drone", "drone", "brute", "drone"] },          // meet the BRUTE
-  { lockCam: 1680, spawns: ["drone", "laser", "drone", "laser", "red"] },   // meet the GUNNER
-  { lockCam: 2160, spawns: ["flyer", "drone", "flyer", "drone", "red"], pizza: true }, // meet the FLYER + PIZZA
-  { lockCam: 2640, spawns: ["brute", "red", "brute", "drone", "red"] },     // double brute
-  { lockCam: 3120, spawns: ["laser", "flyer", "drone", "laser", "red", "red"] },
-  { lockCam: 3600, spawns: ["flyer", "brute", "laser", "red", "drone", "flyer"], pizza: true }, // gauntlet + PIZZA
-  { lockCam: 4140, spawns: ["red", "red", "drone", "brute", "red", "flyer", "drone"] }, // swarm
-  { lockCam: CAM_MAX, spawns: ["boss"], boss: true },
-];
 const MAX_CONCURRENT = 4;
 
 /* --------------------------- Playable roster ------------------------- */
@@ -285,7 +291,7 @@ const OBSTACLE_TYPES = {
   barrier: { halfW: 19, halfD: 7,  h: 26 },
 };
 // z kept in a middle band so there's always a walkable lane on each side
-const OBSTACLES = [
+const OBSTACLES_BRIDGE = [
   { x: 500,  z: 190, type: "cone" },
   { x: 545,  z: 204, type: "cone" },
   { x: 970,  z: 198, type: "drum" },
@@ -302,6 +308,62 @@ const OBSTACLES = [
   { x: 4420, z: 192, type: "drum" },
   { x: 4470, z: 204, type: "cone" },
   { x: 4720, z: 196, type: "barrier" },
+];
+// sewers: barrels, crates and rubble (no traffic cones down here)
+const OBSTACLES_SEWER = [
+  { x: 520,  z: 196, type: "drum" },
+  { x: 1010, z: 200, type: "crate" },
+  { x: 1080, z: 190, type: "drum" },
+  { x: 1520, z: 196, type: "barrier" },
+  { x: 1980, z: 202, type: "drum" },
+  { x: 2040, z: 192, type: "crate" },
+  { x: 2520, z: 196, type: "barrier" },
+  { x: 2980, z: 200, type: "drum" },
+  { x: 3060, z: 192, type: "crate" },
+  { x: 3520, z: 196, type: "barrier" },
+  { x: 3980, z: 200, type: "drum" },
+  { x: 4040, z: 190, type: "crate" },
+];
+
+/* ------------------------------ Stages ------------------------------- */
+/* Each stage: world length, theme, obstacle list, and a room list. The boss
+   room's lockCam is auto-set to (length - CANVAS_W). */
+function makeStage(s) {
+  s.camMax = s.length - CANVAS_W;
+  s.rooms[s.rooms.length - 1].lockCam = s.camMax;   // boss room locks at the end
+  return s;
+}
+const STAGES = [
+  makeStage({
+    name: "BRIDGE OF STEEL", theme: "bridge", length: 5400, obstacles: OBSTACLES_BRIDGE,
+    rooms: [
+      { lockCam: 300,  spawns: ["drone", "drone", "drone"] },
+      { lockCam: 760,  spawns: ["drone", "drone", "red", "drone"] },
+      { lockCam: 1220, spawns: ["drone", "drone", "brute", "drone"] },
+      { lockCam: 1680, spawns: ["drone", "laser", "drone", "laser", "red"] },
+      { lockCam: 2160, spawns: ["flyer", "drone", "flyer", "drone", "red"], pizza: true },
+      { lockCam: 2640, spawns: ["brute", "red", "brute", "drone", "red"] },
+      { lockCam: 3120, spawns: ["laser", "flyer", "drone", "laser", "red", "red"] },
+      { lockCam: 3600, spawns: ["flyer", "brute", "laser", "red", "drone", "flyer"], pizza: true },
+      { lockCam: 4140, spawns: ["red", "red", "drone", "brute", "red", "flyer", "drone"] },
+      { spawns: ["boss"], boss: true },
+    ],
+  }),
+  makeStage({
+    name: "TOXIC SEWERS", theme: "sewer", length: 5000, obstacles: OBSTACLES_SEWER,
+    rooms: [
+      { lockCam: 300,  spawns: ["drone", "drone", "drone"] },
+      { lockCam: 760,  spawns: ["drone", "red", "drone", "red"] },
+      { lockCam: 1240, spawns: ["laser", "drone", "laser", "drone"] },
+      { lockCam: 1720, spawns: ["brute", "drone", "red", "drone"], pizza: true },
+      { lockCam: 2200, spawns: ["flyer", "drone", "flyer", "red"] },
+      { lockCam: 2680, spawns: ["laser", "brute", "flyer", "red", "drone"] },
+      { lockCam: 3160, spawns: ["red", "red", "laser", "drone", "flyer"] },
+      { lockCam: 3640, spawns: ["brute", "brute", "red", "flyer", "drone"], pizza: true },
+      { lockCam: 4120, spawns: ["red", "flyer", "laser", "brute", "drone", "red", "flyer"] },
+      { spawns: ["ooze"], boss: true },
+    ],
+  }),
 ];
 
 // push an actor out of any solid obstacle (skipped while jumping above its height)
@@ -469,7 +531,9 @@ class Player extends Actor {
     // --- movement (direct velocity, frame-independent) ---
     let moveX = 0, moveZ = 0;
     this.moveVX = 0; this.moveVZ = 0;
-    const groundMove = grounded && !groundBusy && this.state !== "block";
+    const groundLocked = ["special", "roll", "hurt"].includes(this.state);
+    const groundMove = grounded && !groundLocked && this.state !== "block" && this.state !== "jump";
+    const canSetWalkState = groundMove && !groundBusy;
     const airMove = !grounded;
     if (groundMove || airMove) {
       if (I.isDown("left")) moveX -= 1;
@@ -477,7 +541,7 @@ class Player extends Actor {
       if (I.isDown("up")) moveZ -= 1;
       if (I.isDown("down")) moveZ += 1;
       if (moveX !== 0 && !airAttacking) this.facing = sign(moveX);  // dive-kick keeps its facing
-      if (groundMove) {
+      if (canSetWalkState) {
         if (moveX !== 0 || moveZ !== 0) {
           this.setState("walk");
           this._stepClock = (this._stepClock || 0) + dt;
@@ -639,6 +703,8 @@ class Enemy extends Actor {
     super(kind);
     const cfg = KINDS[kind];
     this.cfg = cfg;
+    // pick the stage-appropriate palette (sewer recolor on Stage 2)
+    this.pal = (game.theme === "sewer" && cfg.sewerPal) ? cfg.sewerPal : cfg.pal;
     this.isBoss = !!cfg.isBoss;
     this.behavior = cfg.behavior || "melee";
     this.maxHp = cfg.hp; this.hp = cfg.hp;
@@ -684,7 +750,7 @@ class Enemy extends Actor {
     const credit = this.lastAttacker;
     if (credit) credit.special = clamp(credit.special + 16, 0, credit.maxSpecial);
     Sound.die();
-    sparks(this.worldX, this.z - 26, this.cfg.pal.eye, this.isBoss ? 26 : 12);
+    sparks(this.worldX, this.z - 26, this.pal.eye, this.isBoss ? 26 : 12);
     if (this.isBoss) { shake(10, 0.6); explode(this.worldX, this.z - 40, 30); }
     else explode(this.worldX, this.z - 26, 8);
   }
@@ -823,11 +889,11 @@ class Enemy extends Actor {
     game.projectiles.push({
       worldX: this.worldX + dir * 12, z: this.z, alt: 22,
       vx: dir * cfg.projSpeed, dmg: cfg.projDmg, life: 3.2,
-      color: cfg.pal.eye, w: 12, h: 4, owner: "enemy",
+      color: this.pal.eye, w: 12, h: 4, owner: "enemy",
     });
     this.attackCooldown = rand(cfg.fireMin, cfg.fireMax);
     Sound.laser();
-    sparks(this.worldX + dir * 14, this.z - 22, cfg.pal.eye, 4);
+    sparks(this.worldX + dir * 14, this.z - 22, this.pal.eye, 4);
   }
 
   /* ---- flyer AI: hover then swoop ---- */
@@ -890,7 +956,7 @@ class Enemy extends Actor {
     const cfg = this.cfg;
     if (!this.enraged && this.hp < this.maxHp * 0.4) {
       this.enraged = true;
-      spawnText(this.worldX, this.z - 110, "TITAN-X: OVERDRIVE!", "#ff4d4d");
+      spawnText(this.worldX, this.z - 110, this.cfg.name + ": OVERDRIVE!", "#ff4d4d");
       Sound.warn();
     }
     const spd = this.enraged ? cfg.speed * 1.6 : cfg.speed;
@@ -1013,9 +1079,15 @@ function spawnText(x, z, text, color) {
 
 /* ============================== Game =============================== */
 const game = {
-  state: "title",            // title | select | playing | paused | gameover | win
+  state: "title",            // title | select | playing | paused | stageclear | gameover | win
+  stageIndex: 0,
+  stage: STAGES[0],
+  rooms: STAGES[0].rooms,
+  theme: "bridge",
+  levelLength: STAGES[0].length,
+  camMax: STAGES[0].camMax,
   cameraX: 0,
-  cameraScrollMax: ROOMS[0].lockCam,
+  cameraScrollMax: 0,
   roomIndex: 0,
   roomState: "approaching",  // approaching | fighting | cleared
   spawnQueue: [],
@@ -1038,40 +1110,61 @@ const game = {
   goTimer: 0,
   warnTimer: 0,
   endTimer: 0,
+  stageClearTimer: 0,
   titlePulse: 0,
 
+  // build a fresh run (new players) starting at Stage 1
   reset(roster) {
+    this.players = roster.map((r, i) => {
+      const pl = new Player(r.charIndex, i, r.input);
+      return pl;
+    });
+    this.loadStage(0);
+  },
+
+  // (re)load a stage's world; keeps existing players (heals + repositions them)
+  loadStage(i) {
+    this.stageIndex = i;
+    const st = STAGES[i];
+    this.stage = st;
+    this.rooms = st.rooms;
+    this.theme = st.theme;
+    this.levelLength = st.length;
+    this.camMax = st.camMax;
     this.cameraX = 0;
-    this.cameraScrollMax = ROOMS[0].lockCam;
+    this.cameraScrollMax = this.rooms[0].lockCam;
     this.roomIndex = 0;
     this.roomState = "approaching";
     this.spawnQueue = [];
     this.spawnTimer = 0;
+    this.spawnSide = 1;
     this.enemies = [];
     this.projectiles = [];
-    this.obstacles = OBSTACLES.map((o) => ({ ...o, ...OBSTACLE_TYPES[o.type], obstacle: true }));
+    this.obstacles = st.obstacles.map((o) => ({ ...o, ...OBSTACLE_TYPES[o.type], obstacle: true }));
     this.pickups = [];
     this.pizzasSpawned = 0;
     this.boss = null;
     this.particles = [];
     this.texts = [];
     this.attackTokens = 3;
-    this.time = 0;
     this.goTimer = 0;
     this.warnTimer = 0;
     this.endTimer = 0;
     this.endTimerStart = undefined;
-    this.players = roster.map((r, i) => {
-      const pl = new Player(r.charIndex, i, r.input);
-      pl.worldX = 64 + i * 40;
-      pl.z = FLOOR_BOTTOM - 8 + i * 10;
-      return pl;
+    this.players.forEach((pl, idx) => {
+      if (pl.out) return;                 // spectating players stay out
+      pl.worldX = 64 + idx * 40;
+      pl.z = FLOOR_BOTTOM - 8 + idx * 10;
+      pl.alt = 0; pl.valt = 0; pl.vx = 0; pl.vz = 0;
+      pl.hp = pl.maxHp; pl.dead = false; pl.invuln = 1.2;
+      pl.setState("idle");
     });
   },
 
   /* ----- character-select flow ----- */
   beginSelect() {
     this.state = "select";
+    this.theme = "bridge";     // select screen shows the Stage 1 backdrop
     this.titlePulse = 0;
     this.sel = { slots: [
       { joined: true,  charIndex: 0, input: inputs[0], device: null },
@@ -1126,6 +1219,9 @@ const game = {
   restart() { this.reset(this.roster); this.state = "playing"; Sound.start(); },
   toGameOver() { this.state = "gameover"; this.endTimer = 0; Sound.gameover(); },
   toWin() { this.state = "win"; this.endTimer = 0; Sound.win(); },
+  // boss down but more stages remain -> intermission, then advance
+  nextStage() { this.state = "stageclear"; this.stageClearTimer = 0; Sound.win(); },
+  advanceStage() { this.loadStage(this.stageIndex + 1); this.state = "playing"; Sound.go(); },
 
   alivePlayers() { return this.players.filter((pl) => !pl.out); },
   nearestPlayer(actor) {
@@ -1144,7 +1240,7 @@ const game = {
   },
 
   beginRoom() {
-    const room = ROOMS[this.roomIndex];
+    const room = this.rooms[this.roomIndex];
     this.spawnQueue = room.spawns.slice();
     this.spawnTimer = 0.4;
     this.roomState = "fighting";
@@ -1153,7 +1249,7 @@ const game = {
 
   trySpawn(dt) {
     if (this.roomState !== "fighting" || this.spawnQueue.length === 0) return;
-    const room = ROOMS[this.roomIndex];
+    const room = this.rooms[this.roomIndex];
     this.spawnTimer -= dt;
     const limit = room.boss ? 1 : MAX_CONCURRENT;
     if (this.spawnTimer <= 0 && this.enemies.length < limit) {
@@ -1193,15 +1289,18 @@ const game = {
     }
     this.trySpawn(dt);
     if (this.roomCleared()) {
-      const room = ROOMS[this.roomIndex];
+      const room = this.rooms[this.roomIndex];
       if (room.boss) {
         if (this.endTimerStart === undefined) this.endTimerStart = this.time;
-        if (this.time - this.endTimerStart > 1.4) this.toWin();
+        if (this.time - this.endTimerStart > 1.4) {
+          if (this.stageIndex < STAGES.length - 1) this.nextStage();   // more stages to come
+          else this.toWin();                                           // final stage cleared
+        }
       } else {
         if (room.pizza && this.pizzasSpawned < 2) this.spawnPizza();
         this.roomState = "cleared";
         this.roomIndex++;
-        this.cameraScrollMax = ROOMS[this.roomIndex].lockCam;
+        this.cameraScrollMax = this.rooms[this.roomIndex].lockCam;
         this.roomState = "approaching";
         this.goTimer = 2.2;
         Sound.go();
@@ -1256,7 +1355,7 @@ const game = {
     const alive = this.alivePlayers();
     const avgX = alive.length ? alive.reduce((s, pl) => s + pl.worldX, 0) / alive.length : this.cameraX + CANVAS_W * 0.42;
     const target = avgX - CANVAS_W * 0.42;
-    this.cameraX = clamp(lerp(this.cameraX, target, 1 - Math.exp(-8 * dt)), 0, Math.min(this.cameraScrollMax, CAM_MAX));
+    this.cameraX = clamp(lerp(this.cameraX, target, 1 - Math.exp(-8 * dt)), 0, Math.min(this.cameraScrollMax, this.camMax));
 
     // particles & texts
     for (const pt of this.particles) {
@@ -1272,6 +1371,11 @@ function shake(mag, time) { if (mag > game.shakeMag || game.shakeTime <= 0) { ga
 
 /* ============================ Rendering ============================ */
 function drawBackground() {
+  if (game.theme === "sewer") drawSewerBackground();
+  else drawBridgeBackground();
+}
+
+function drawBridgeBackground() {
   const cam = game.cameraX;
   // sky
   const sky = ctx.createLinearGradient(0, 0, 0, 150);
@@ -1307,7 +1411,7 @@ function drawBackground() {
   // bridge towers + suspension cables (parallax 0.6)
   const off3 = -(cam * 0.6);
   ctx.strokeStyle = "#36506e"; ctx.lineWidth = 2;
-  for (let bx = -200; bx < LEVEL_LENGTH; bx += 520) {
+  for (let bx = -200; bx < game.levelLength; bx += 520) {
     const sx = px(bx + off3);
     if (sx < -60 || sx > CANVAS_W + 60) continue;
     ctx.fillStyle = "#3f5a78";
@@ -1370,6 +1474,92 @@ function drawBackground() {
     ctx.beginPath();
     ctx.moveTo(sx, 168); ctx.lineTo(sx + 10, 184); ctx.lineTo(sx + 2, 206); ctx.lineTo(sx + 16, 224);
     ctx.stroke();
+  }
+}
+
+function drawSewerBackground() {
+  const cam = game.cameraX;
+  // dank backdrop
+  const g = ctx.createLinearGradient(0, 0, 0, 148);
+  g.addColorStop(0, "#0c130b"); g.addColorStop(1, "#20301a");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, CANVAS_W, 148);
+
+  // brick back wall with mortar grid (parallax 0.3)
+  ctx.fillStyle = "#3b4226"; ctx.fillRect(0, 36, CANVAS_W, 96);
+  ctx.fillStyle = "#2a301a";
+  const bh = 14;
+  for (let r = 0; r < 7; r++) {
+    const y = 36 + r * bh;
+    ctx.fillRect(0, y, CANVAS_W, 1);
+    const off = (-(cam * 0.3) % 60) + (r % 2 ? 30 : 0);
+    for (let x = off - 60; x < CANVAS_W + 60; x += 60) ctx.fillRect(px(x), y, 1, bh);
+  }
+  ctx.fillStyle = "rgba(18,28,10,0.35)";
+  const stO = -(cam * 0.3) % 160;
+  for (let x = stO - 160; x < CANVAS_W + 160; x += 160) ctx.fillRect(px(x), 36, 12, 96);
+
+  // dark arch alcoves with a faint green glow (parallax 0.45)
+  const aO = -(cam * 0.45) % 230;
+  for (let x = aO - 230; x < CANVAS_W + 230; x += 230) {
+    const ax = px(x);
+    ctx.fillStyle = "#0a120a";
+    ctx.beginPath();
+    ctx.moveTo(ax, 126); ctx.lineTo(ax, 82); ctx.quadraticCurveTo(ax + 24, 56, ax + 48, 82); ctx.lineTo(ax + 48, 126); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "rgba(120,255,80,0.10)"; ctx.fillRect(ax + 9, 96, 30, 30);
+  }
+
+  // big pipes across the wall (parallax 0.6) with flanges
+  const pipe = (y, h, c1, c2, c3) => {
+    ctx.fillStyle = c1; ctx.fillRect(0, y, CANVAS_W, h);
+    ctx.fillStyle = c2; ctx.fillRect(0, y, CANVAS_W, 2);
+    ctx.fillStyle = c3; ctx.fillRect(0, y + h - 2, CANVAS_W, 2);
+    const o = -(cam * 0.6) % 120;
+    ctx.fillStyle = c3;
+    for (let x = o - 120; x < CANVAS_W + 120; x += 120) ctx.fillRect(px(x), y - 1, 7, h + 2);
+  };
+  pipe(66, 11, "#525c33", "#6c7846", "#343a1e");
+  pipe(112, 8, "#47502c", "#5e6a3a", "#2c3119");
+
+  // toxic water channel
+  ctx.fillStyle = "#2a4420"; ctx.fillRect(0, 132, CANVAS_W, 16);
+  ctx.fillStyle = "#3c5e29";
+  for (let i = 0; i < CANVAS_W; i += 16) if (((i + Math.floor(game.time * 24)) % 32) < 16) ctx.fillRect(i, 136, 9, 2);
+  ctx.fillStyle = "#7fc24a";
+  for (let i = 0; i < CANVAS_W; i += 40) if (((i + Math.floor(game.time * 44)) % 80) < 6) ctx.fillRect(i, 140, 4, 1);
+  ctx.fillStyle = "#1c3016"; ctx.fillRect(0, 132, CANVAS_W, 2);
+
+  // === floor (1:1 with camera) ===
+  const f = ctx.createLinearGradient(0, 148, 0, PLAY_H);
+  f.addColorStop(0, "#566048"); f.addColorStop(0.5, "#6a745a"); f.addColorStop(1, "#444c39");
+  ctx.fillStyle = f; ctx.fillRect(0, 148, CANVAS_W, PLAY_H - 148);
+  ctx.fillStyle = "#3e4632"; ctx.fillRect(0, 148, CANVAS_W, 4);     // ledge edge
+  ctx.fillStyle = "#717c5e"; ctx.fillRect(0, 152, CANVAS_W, 2);
+
+  // tile joints
+  ctx.fillStyle = "#3c4432";
+  const jO = -(cam) % 96;
+  for (let x = jO - 96; x < CANVAS_W + 96; x += 96) ctx.fillRect(px(x), 152, 2, PLAY_H - 152);
+  ctx.fillRect(0, 192, CANVAS_W, 1);
+
+  // grates, manholes, slime puddles
+  const props = [
+    { x: 260, t: "grate" }, { x: 700, t: "manhole" }, { x: 1150, t: "slime" }, { x: 1600, t: "grate" },
+    { x: 2050, t: "manhole" }, { x: 2500, t: "slime" }, { x: 2950, t: "grate" }, { x: 3400, t: "manhole" },
+    { x: 3850, t: "slime" }, { x: 4300, t: "grate" }, { x: 4750, t: "manhole" },
+  ];
+  for (const p of props) {
+    const sx = px(p.x - cam);
+    if (sx < -40 || sx > CANVAS_W + 40) continue;
+    if (p.t === "grate") {
+      ctx.fillStyle = "#2f3526"; ctx.fillRect(sx, 206, 34, 16);
+      ctx.fillStyle = "#566048"; for (let i = 0; i < 5; i++) ctx.fillRect(sx + 2 + i * 7, 207, 4, 14);
+    } else if (p.t === "manhole") {
+      ctx.fillStyle = "#3a4230"; ctx.beginPath(); ctx.ellipse(sx, 212, 16, 7, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#4e5840"; ctx.beginPath(); ctx.ellipse(sx, 211, 13, 5, 0, 0, Math.PI * 2); ctx.fill();
+    } else {
+      ctx.fillStyle = "rgba(120,200,60,0.45)"; ctx.beginPath(); ctx.ellipse(sx, 214, 18, 6, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "rgba(180,255,90,0.5)"; ctx.beginPath(); ctx.ellipse(sx - 4, 213, 6, 2, 0, 0, Math.PI * 2); ctx.fill();
+    }
   }
 }
 
@@ -1539,7 +1729,7 @@ function drawDrone(e) {
   ctx.save();
   ctx.translate(px(sx), px(sy - alt));
   ctx.scale(f, 1);
-  const P = e.cfg.pal, t = e.stateTime, lp = legPhase(e);
+  const P = e.pal, t = e.stateTime, lp = legPhase(e);
   const windup = e.state === "windup", strike = e.state === "strike";
   let claw = 0, lean = 0;
   if (windup) { const k = clamp(t / e.cfg.windup, 0, 1); claw = -6 * Math.sin(k * Math.PI * 0.5); lean = -3 * k; }
@@ -1620,7 +1810,7 @@ function drawBoss(e) {
   ctx.save();
   ctx.translate(px(sx), px(sy - alt));
   ctx.scale(f, 1);
-  const P = e.cfg.pal, enr = e.enraged, t = e.stateTime;
+  const P = e.pal, enr = e.enraged, t = e.stateTime;
   const windup = e.state === "windup", strike = e.state === "strike", charge = e.state === "charge";
   let armF = 0, armUp = 0, lean = 0;
   if (windup) {
@@ -1691,6 +1881,82 @@ function drawBoss(e) {
   }
 }
 
+/* ===================== Sewer boss (SLUDGE-9) ====================== */
+function drawBoss2(e) {
+  const sx = e.screenX, sy = e.z, f = e.facing, alt = e.alt || 0;
+  drawShadow(sx, sy, 26);
+  ctx.save();
+  ctx.translate(px(sx), px(sy - alt));
+  ctx.scale(f, 1);
+  const P = e.pal, enr = e.enraged, t = e.stateTime;
+  const windup = e.state === "windup", strike = e.state === "strike", charge = e.state === "charge";
+  let armF = 0, armUp = 0, lean = 0;
+  if (windup) {
+    const k = clamp(t / (e.windDur || 0.5), 0, 1);
+    if (e.attackName === "slam") armUp = -16 * Math.sin(k * Math.PI * 0.5);
+    else if (e.attackName === "swipe") armF = -10 * k;
+    else lean = -4 * k;
+  } else if (strike) {
+    const k = clamp(t / e.cfg.active, 0, 1);
+    if (e.attackName === "slam") { armUp = -16 * (1 - Math.sin(k * Math.PI * 0.5)); lean = 4 * k; }
+    else { armF = 26 * Math.sin(k * Math.PI); lean = 5 * Math.sin(k * Math.PI); }
+  } else if (charge) { lean = -6; armF = 10; }
+  if (e.state === "dead") { ctx.translate(0, -6); ctx.rotate(0.5); ctx.globalAlpha = clamp(1 - e.deadTimer / 1.2, 0, 1); }
+
+  const bob = (e.state === "approach") ? Math.abs(Math.sin(e.animClock * 8)) * 1.8 : 0;
+  const up = -bob, D = "#0a120a";
+  const tx = lean * 0.5, ty = -50 + up, tw = 36, th = 26, hy = -58 + up;
+
+  // squat legs
+  bev(-16, -14, 13, 14, P.dark, P.metal, D); bev(3, -14, 13, 14, P.dark, P.metal, D);
+  pr(-16, -3, 13, 3, D); pr(3, -3, 13, 3, D);
+  // back claw
+  bev(tx - 24, ty + 12 + armUp * 0.4, 9, 10, P.mSh, P.metal, D);
+  // hunched bulbous torso
+  out(tx - 18, ty, tw, th, D); bev(tx - 18, ty, tw, th, P.metal, P.mHi, P.mSh);
+  bev(tx - 13, ty + 4, 26, 18, P.trim, P.trimHi, P.trimSh);   // toxic belly plate
+  const coreOn = enr ? (Math.sin(game.time * 22) > -0.3) : (Math.sin(game.time * 7) > -0.2);
+  if (coreOn) {
+    ctx.save(); ctx.globalAlpha *= 0.55; pr(tx - 9, ty + 6, 18, 14, "#9bff3a"); ctx.restore();
+    pr(tx - 6, ty + 8, 12, 10, enr ? "#ccff5a" : "#9bff3a");   // glowing green core
+  }
+  pr(tx - 13, ty + 13, 26, 1, P.trimSh);
+  pr(tx - 18, ty + th - 3, tw, 3, P.dark);
+  // pipe shoulders + vent stacks
+  out(tx - 27, ty - 4, 11, 14, D); bev(tx - 27, ty - 4, 11, 14, P.metal, P.mHi, P.mSh);
+  out(tx + 16, ty - 4, 11, 14, D); bev(tx + 16, ty - 4, 11, 14, P.metal, P.mHi, P.mSh);
+  pr(tx - 24, ty - 7, 5, 4, P.dark); pr(tx + 19, ty - 7, 5, 4, P.dark);
+  // ooze drips
+  const drip = Math.floor(game.time * 3) % 3;
+  pr(tx - 8, ty + th - 2 + drip * 2, 2, 4, "#7fdf3a");
+  pr(tx + 6, ty + th - 2 + ((drip + 1) % 3) * 2, 2, 4, "#7fdf3a");
+  // low domed head, single big eye
+  const hx = tx + lean * 0.3;
+  out(hx - 8, hy, 17, 11, D); bev(hx - 8, hy, 17, 11, P.metal, P.mHi, P.mSh);
+  pr(hx - 8, hy + 4, 17, 5, D);
+  const eyeC = enr ? "#ccff3a" : P.eye;
+  ctx.save(); ctx.globalAlpha *= 0.5; pr(hx - 5, hy + 3, 11, 6, eyeC); ctx.restore();
+  pr(hx - 3, hy + 4, 7, 4, windup ? "#ffffff" : eyeC);
+  pr(hx, hy + 5, 2, 2, D);
+  bev(hx - 10, hy - 4, 4, 6, P.trim, P.trimHi, P.trimSh);
+  bev(hx + 7, hy - 4, 4, 6, P.trim, P.trimHi, P.trimSh);
+  // front claw arm
+  const ay = ty + 9 + armUp, fe = Math.max(0, armF);
+  bev(tx + 15, ay, 9 + fe, 10, P.metal, P.mHi, P.mSh);
+  const fx = tx + 15 + 9 + fe;
+  out(fx - 2, ay - 3, 12, 15, D); bev(fx - 2, ay - 3, 12, 15, P.trim, P.trimHi, P.trimSh);
+  pr(fx + 8, ay - 3, 3, 5, P.trimSh); pr(fx + 8, ay + 6, 3, 5, P.trimSh);
+
+  if (e.hitFlash > 0) { ctx.save(); ctx.globalAlpha *= 0.6; ctx.fillStyle = "#fff"; ctx.fillRect(tx - 28, hy, 58, 70); ctx.restore(); }
+  ctx.restore();
+  if (windup) {
+    ctx.fillStyle = Math.sin(game.time * 30) > 0 ? "#9bff3a" : "#ffd000";
+    ctx.font = "bold 16px monospace";
+    const label = e.attackName === "slam" ? "SLAM!" : e.attackName === "charge" ? "CHARGE!" : "!";
+    ctx.fillText(label, px(sx) - ctx.measureText(label).width / 2, px(sy) - 76);
+  }
+}
+
 /* ============================ Brute (big melee) ============================ */
 function bruteLeg(cx, P) {
   bev(cx - 3, -20, 7, 13, P.dark, P.metal, "#0c0f15");
@@ -1704,7 +1970,7 @@ function drawBrute(e) {
   ctx.save();
   ctx.translate(px(sx), px(sy - alt));
   ctx.scale(f, 1);
-  const P = e.cfg.pal, t = e.stateTime, lp = legPhase(e);
+  const P = e.pal, t = e.stateTime, lp = legPhase(e);
   const windup = e.state === "windup", strike = e.state === "strike";
   let armF = 0, lean = 0;
   if (windup) { const k = clamp(t / e.cfg.windup, 0, 1); armF = -12 * Math.sin(k * Math.PI * 0.5); lean = -3 * k; }
@@ -1749,7 +2015,7 @@ function drawLaser(e) {
   ctx.save();
   ctx.translate(px(sx), px(sy - alt));
   ctx.scale(f, 1);
-  const P = e.cfg.pal, t = e.stateTime, lp = legPhase(e);
+  const P = e.pal, t = e.stateTime, lp = legPhase(e);
   const aiming = e.state === "aim";
   let lean = 0;
   if (aiming) lean = -2;
@@ -1792,7 +2058,7 @@ function drawFlyer(e) {
   ctx.save();
   ctx.translate(px(sx), px(sy - alt));
   ctx.scale(f, 1);
-  const P = e.cfg.pal, t = e.stateTime;
+  const P = e.pal, t = e.stateTime;
   const windup = e.state === "windup", strike = e.state === "strike";
   let lean = 0;
   if (strike) lean = 6;
@@ -1906,7 +2172,7 @@ function drawActors() {
     if (a instanceof Player) drawHero(a);
     else if (a.obstacle) drawObstacle(a);
     else if (a.pickup) drawPickup(a);
-    else if (a.isBoss) drawBoss(a);
+    else if (a.isBoss) (a.kind === "ooze" ? drawBoss2 : drawBoss)(a);
     else if (a.kind === "brute") drawBrute(a);
     else if (a.kind === "laser") drawLaser(a);
     else if (a.kind === "flyer") drawFlyer(a);
@@ -2009,7 +2275,7 @@ function drawHUD() {
     const bw = 300, bx = (CANVAS_W - bw) / 2, by = 14;
     ctx.font = "bold 11px monospace"; ctx.fillStyle = "#ff4d4d";
     ctx.textAlign = "center";
-    ctx.fillText("TITAN-X" + (b.enraged ? "  *OVERDRIVE*" : ""), CANVAS_W / 2, by - 2);
+    ctx.fillText((b.cfg.name || "BOSS") + (b.enraged ? "  *OVERDRIVE*" : ""), CANVAS_W / 2, by - 2);
     ctx.textAlign = "left";
     bar(bx, by + 2, bw, 10, b.hp / b.maxHp, b.enraged ? "#ff3b30" : "#e0392b", "#240a08");
   }
@@ -2179,7 +2445,8 @@ function render() {
   drawGoArrow();
 
   if (game.warnTimer > 0 && Math.sin(game.time * 12) > -0.2) {
-    drawCenterText("WARNING", "TITAN-X APPROACHES", "#ff4d4d");
+    const bn = (game.boss && game.boss.cfg.name) || (game.stage && game.stage.rooms[game.stage.rooms.length - 1] && KINDS[game.stage.rooms[game.stage.rooms.length - 1].spawns[0]].name) || "BOSS";
+    drawCenterText("WARNING", bn + " APPROACHES", "#ff4d4d");
   }
 
   if (game.state === "paused") {
@@ -2188,12 +2455,17 @@ function render() {
   } else if (game.state === "gameover") {
     ctx.fillStyle = "rgba(40,0,0,0.6)"; ctx.fillRect(0, 0, CANVAS_W, PLAY_H);
     drawCenterText("GAME OVER", "START / ENTER to retry", "#ff4d4d");
+  } else if (game.state === "stageclear") {
+    ctx.fillStyle = "rgba(0,15,8,0.62)"; ctx.fillRect(0, 0, CANVAS_W, PLAY_H);
+    const next = STAGES[game.stageIndex + 1];
+    drawCenterText("STAGE " + (game.stageIndex + 1) + " CLEAR!",
+      "NEXT — STAGE " + (game.stageIndex + 2) + ": " + (next ? next.name : ""), "#36d35a");
   } else if (game.state === "win") {
     ctx.fillStyle = "rgba(0,20,40,0.55)"; ctx.fillRect(0, 0, CANVAS_W, PLAY_H);
     const scoreLine = game.players.length > 1
       ? game.players.map((p) => "P" + (p.playerIndex + 1) + " " + p.score).join("   ")
       : "Score " + game.players[0].score;
-    drawCenterText("STAGE CLEAR!", scoreLine + "  ·  START for title", "#ffe23a");
+    drawCenterText("GAME COMPLETE!", scoreLine + "  ·  START for title", "#ffe23a");
   }
 
   ctx.restore();
@@ -2215,9 +2487,13 @@ function frame(now) {
     if (Menu.jp("start")) game.beginSelect();
   } else if (game.state === "select") {
     game.updateSelect(dt);
+  } else if (game.state === "stageclear") {
+    game.stageClearTimer += dt; game.time += dt;
+    if (game.shakeTime > 0) game.shakeTime -= dt;
+    if (game.stageClearTimer > 3.6 || Menu.jp("start")) game.advanceStage();
   } else if (game.state === "gameover" || game.state === "win") {
-    if (Menu.jp("start")) { if (game.state === "win") { game.state = "title"; game.titlePulse = 0; } else game.restart(); }
-    if (Menu.jp("back")) { game.state = "title"; game.titlePulse = 0; }
+    if (Menu.jp("start")) { if (game.state === "win") { game.state = "title"; game.theme = "bridge"; game.titlePulse = 0; } else game.restart(); }
+    if (Menu.jp("back")) { game.state = "title"; game.theme = "bridge"; game.titlePulse = 0; }
     game.time += dt; if (game.shakeTime > 0) game.shakeTime -= dt;
   } else { // playing | paused
     if (Menu.jp("pause")) game.state = game.state === "paused" ? "playing" : "paused";
