@@ -446,8 +446,9 @@ class Player extends Actor {
     const I = this.input;
     const grounded = this.alt <= 0.001;
     const blocking = grounded && I.isDown("block");
-    const groundBusy = ["punch", "kick", "special", "roll", "hurt"].includes(this.state);
-    const airAttacking = this.state === "airpunch" || this.state === "airkick";
+    const isGroundBusy = () => ["punch", "kick", "special", "roll", "hurt"].includes(this.state);
+    const isAirAttacking = () => this.state === "airpunch" || this.state === "airkick";
+    let groundBusy = isGroundBusy();
 
     // --- start actions ---
     if (grounded && !groundBusy) {
@@ -462,6 +463,8 @@ class Player extends Actor {
       if (I.justPressed("kick")) { this.startAirKick(); }
       else if (I.justPressed("punch")) { this.startAirPunch(); }
     }
+    groundBusy = isGroundBusy();
+    const airAttacking = isAirAttacking();
 
     // --- movement (direct velocity, frame-independent) ---
     let moveX = 0, moveZ = 0;
